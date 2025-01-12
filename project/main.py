@@ -1,5 +1,6 @@
 import pygame
 import random
+import os
 
 # Inicialização do Pygame
 pygame.init()
@@ -13,171 +14,230 @@ pygame.display.set_caption("Jogo de Achado e Perdido")
 # Cores
 white = (255, 255, 255)
 black = (0, 0, 0)
-brown = (139, 69, 19)
 green = (34, 139, 34)
 gray = (169, 169, 169)
 blue = (0, 0, 255)
 red = (255, 0, 0)
 yellow = (255, 255, 0)
 
-# Configuração do relógio para controle de FPS
+# Relógio para controle de FPS
 clock = pygame.time.Clock()
 
-# Fontes
-font_large = pygame.font.SysFont(None, 60)
-font_small = pygame.font.SysFont(None, 40)
+# Carregar imagem do objeto
+try:
+    object_img = pygame.image.load('object.png')
+    object_img = pygame.transform.scale(object_img, (50, 50))
+except pygame.error:
+    object_img = pygame.Surface((50, 50))
+    object_img.fill(yellow)
+
+object_rect = object_img.get_rect()
 
 # Configuração do jogador
 player_size = 40
 player_speed = 5
-player_color = blue
 player_rect = pygame.Rect(100, screen_height - player_size - 100, player_size, player_size)
 
-# Configuração do objeto a ser encontrado
-object_size = 50
-object_color = yellow
-object_rect = pygame.Rect(
-    random.randint(0, screen_width - object_size),
-    random.randint(0, screen_height - object_size),
-    object_size, object_size
-)
-
 # Configuração dos obstáculos
+num_obstacles = 5
 obstacle_size = 50
-initial_obstacles = 5
 obstacles = []
+obstacle_speeds = []
+
+# Carregar sons
+pygame.mixer.init()
+try:
+    collect_sound = pygame.mixer.Sound("collect.wav")
+    collide_sound = pygame.mixer.Sound("collide.wav")
+except pygame.error:
+    collect_sound = collide_sound = None
+
+# Pontuação máxima persistente
+def load_high_score():
+    if os.path.exists("high_score.txt"):
+        with open("high_score.txt", "r") as f:
+            return int(f.read())
+    return 0
+
+def save_high_score(score):
+    with open("high_score.txt", "w") as f:
+        f.write(str(score))
+
+high_score = load_high_score()
+
+# Fontes
+font = pygame.font.SysFont(None, 55)
+
+# Função para exibir mensagem
+def message_display(text, color, size, x, y):
+    font = pygame.font.Font(None, size)
+    text_surface = font.render(text, True, color)
+    text_rect = text_surface.get_rect(center=(x, y))
+    screen.blit(text_surface, text_rect)
+
+# Botão interativo
+def button(text, x, y, w, h, inactive_color, active_color, action=None):
+    mouse = pygame.mouse.get_pos()
+    click = pygame.mouse.get_pressed()
+
+    if x + w > mouse[0] > x and y + h > mouse[1] > y:
+        pygame.draw.rect(screen, active_color, (x, y, w, h))
+        if click[0] == 1 and action is not None:
+            action()
+    else:
+        pygame.draw.rect(screen, inactive_color, (x, y, w, h))
+
+    text_surface = pygame.font.Font(None, 35).render(text, True, black)
+    text_rect = text_surface.get_rect(center=(x + w / 2, y + h / 2))
+    screen.blit(text_surface, text_rect)
 
 # Gerar obstáculos
-
-def generate_obstacles(num_obstacles):
-    global obstacles
+def generate_obstacles(num):
+    global obstacles, obstacle_speeds
     obstacles = []
-    for _ in range(num_obstacles):
+    obstacle_speeds = []
+    for _ in range(num):
         obstacle_rect = pygame.Rect(
             random.randint(0, screen_width - obstacle_size),
             random.randint(0, screen_height - obstacle_size),
             obstacle_size, obstacle_size
         )
-        # Garantir que os obstáculos não fiquem sobre o jogador ou o objeto
-        while obstacle_rect.colliderect(player_rect) or obstacle_rect.colliderect(object_rect):
+        while obstacle_rect.colliderect(object_rect) or obstacle_rect.colliderect(player_rect):
             obstacle_rect.topleft = (
                 random.randint(0, screen_width - obstacle_size),
                 random.randint(0, screen_height - obstacle_size)
             )
         obstacles.append(obstacle_rect)
+        obstacle_speeds.append((random.choice([-2, 2]), random.choice([-2, 2])))
 
-# Função para exibir texto
-
-def draw_text(text, font, color, x, y):
-    text_surface = font.render(text, True, color)
-    text_rect = text_surface.get_rect(center=(x, y))
-    screen.blit(text_surface, text_rect)
-
-# Função para o menu principal
-
+# Tela de menu
 def menu_screen():
     running = True
     while running:
         screen.fill(white)
-        draw_text("Achado e Perdido", font_large, black, screen_width // 2, screen_height // 4)
-        draw_text("1. Jogar", font_small, black, screen_width // 2, screen_height // 2 - 40)
-        draw_text("2. Sair", font_small, black, screen_width // 2, screen_height // 2 + 40)
+        message_display("Jogo de Achado e Perdido", black, 60, screen_width // 2, 100)
+
+        button("Iniciar", 300, 200, 200, 50, green, yellow, game_screen)
+        button("Melhor Pontuação", 300, 300, 200, 50, gray, yellow, show_high_score)
+        button("Sair", 300, 400, 200, 50, red, yellow, quit_game)
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                pygame.quit()
-                quit()
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_1:  # Jogar
-                    game_screen()
-                elif event.key == pygame.K_2:  # Sair
-                    pygame.quit()
-                    quit()
+                quit_game()
 
         pygame.display.update()
         clock.tick(60)
 
-# Função para o jogo
+# Tela de pontuação máxima
+def show_high_score():
+    running = True
+    while running:
+        screen.fill(white)
+        message_display("Melhor Pontuação", black, 60, screen_width // 2, 100)
+        message_display(f"{high_score}", black, 50, screen_width // 2, 200)
+        button("Voltar", 300, 400, 200, 50, gray, yellow, menu_screen)
 
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                quit_game()
+
+        pygame.display.update()
+        clock.tick(60)
+
+# Tela de game over
+def game_over_screen(score):
+    global high_score
+    if score > high_score:
+        high_score = score
+        save_high_score(high_score)
+
+    running = True
+    while running:
+        screen.fill(white)
+        message_display("Game Over!", red, 60, screen_width // 2, 150)
+        message_display(f"Pontuação: {score}", black, 50, screen_width // 2, 250)
+        message_display(f"Melhor Pontuação: {high_score}", black, 50, screen_width // 2, 300)
+        button("Menu", 300, 400, 200, 50, green, yellow, menu_screen)
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                quit_game()
+
+        pygame.display.update()
+        clock.tick(60)
+
+# Tela do jogo
 def game_screen():
     global object_rect, player_rect
-    num_obstacles = initial_obstacles
-    score = 0
+    object_rect.topleft = (random.randint(0, screen_width - object_rect.width),
+                           random.randint(0, screen_height - object_rect.height))
     level = 1
-    running = True
+    score = 0
+    paused = False
     generate_obstacles(num_obstacles)
 
-    while running:
-        screen.fill(white)
-
-        # Desenhar elementos
-        pygame.draw.rect(screen, green, (0, screen_height - 100, screen_width, 100))
-        pygame.draw.rect(screen, object_color, object_rect)
-        pygame.draw.rect(screen, player_color, player_rect)
-        for obstacle in obstacles:
-            pygame.draw.rect(screen, red, obstacle)
-
-        # Exibir pontuação e nível
-        draw_text(f"Pontuação: {score}", font_small, black, 100, 20)
-        draw_text(f"Nível: {level}", font_small, black, 700, 20)
-
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                quit()
-
-        # Movimentação do jogador
-        keys = pygame.key.get_pressed()
-        if keys[pygame.K_UP] and player_rect.top > 0:
-            player_rect.y -= player_speed
-        if keys[pygame.K_DOWN] and player_rect.bottom < screen_height:
-            player_rect.y += player_speed
-        if keys[pygame.K_LEFT] and player_rect.left > 0:
-            player_rect.x -= player_speed
-        if keys[pygame.K_RIGHT] and player_rect.right < screen_width:
-            player_rect.x += player_speed
-
-        # Verificação de colisão com o objeto
-        if player_rect.colliderect(object_rect):
-            score += 10
-            level += 1
-            object_rect.topleft = (
-                random.randint(0, screen_width - object_size),
-                random.randint(0, screen_height - object_size)
-            )
-            num_obstacles += 1
-            generate_obstacles(num_obstacles)
-
-        # Verificação de colisão com obstáculos
-        for obstacle in obstacles:
-            if player_rect.colliderect(obstacle):
-                game_over_screen(score, level)
-
-        pygame.display.update()
-        clock.tick(60)
-
-# Função para tela de game over
-
-def game_over_screen(score, level):
     running = True
     while running:
-        screen.fill(white)
-        draw_text("Game Over", font_large, red, screen_width // 2, screen_height // 4)
-        draw_text(f"Pontuação: {score}", font_small, black, screen_width // 2, screen_height // 2 - 40)
-        draw_text(f"Nível: {level}", font_small, black, screen_width // 2, screen_height // 2)
-        draw_text("Pressione ENTER para voltar ao menu", font_small, black, screen_width // 2, screen_height // 2 + 60)
+        if paused:
+            message_display("Pausado", black, 60, screen_width // 2, screen_height // 2)
+        else:
+            screen.fill(white)
+            screen.blit(object_img, object_rect.topleft)
+            pygame.draw.rect(screen, blue, player_rect)
+
+            for i, obstacle in enumerate(obstacles):
+                pygame.draw.rect(screen, red, obstacle)
+                obstacle.x += obstacle_speeds[i][0]
+                obstacle.y += obstacle_speeds[i][1]
+
+                # Rebater nas bordas
+                if obstacle.left < 0 or obstacle.right > screen_width:
+                    obstacle_speeds[i] = (-obstacle_speeds[i][0], obstacle_speeds[i][1])
+                if obstacle.top < 0 or obstacle.bottom > screen_height:
+                    obstacle_speeds[i] = (obstacle_speeds[i][0], -obstacle_speeds[i][1])
+
+            if player_rect.colliderect(object_rect):
+                score += 10
+                level += 1
+                if collect_sound:
+                    collect_sound.play()
+                object_rect.topleft = (random.randint(0, screen_width - object_rect.width),
+                                       random.randint(0, screen_height - object_rect.height))
+                generate_obstacles(num_obstacles + level)
+
+            for obstacle in obstacles:
+                if player_rect.colliderect(obstacle):
+                    if collide_sound:
+                        collide_sound.play()
+                    game_over_screen(score)
+
+            # Controles do jogador
+            keys = pygame.key.get_pressed()
+            if keys[pygame.K_UP] and player_rect.top > 0:
+                player_rect.y -= player_speed
+            if keys[pygame.K_DOWN] and player_rect.bottom < screen_height:
+                player_rect.y += player_speed
+            if keys[pygame.K_LEFT] and player_rect.left > 0:
+                player_rect.x -= player_speed
+            if keys[pygame.K_RIGHT] and player_rect.right < screen_width:
+                player_rect.x += player_speed
+
+            message_display(f"Pontuação: {score}", black, 40, 100, 20)
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                pygame.quit()
-                quit()
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_RETURN:
-                    menu_screen()
+                quit_game()
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_p:
+                paused = not paused
 
         pygame.display.update()
         clock.tick(60)
 
-# Executar o jogo
+# Sair do jogo
+def quit_game():
+    pygame.quit()
+    quit()
+
+# Iniciar o jogo
 if __name__ == "__main__":
     menu_screen()
